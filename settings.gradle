@@ -1,0 +1,2 @@
+include ':app', ':ams', ':ams-plugin'
+rootProject.name='AmsDemo'
