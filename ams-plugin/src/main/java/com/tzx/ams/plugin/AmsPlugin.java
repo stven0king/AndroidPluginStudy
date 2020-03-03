@@ -17,7 +17,8 @@ public class AmsPlugin implements Plugin<Project> {
     public void apply(@NonNull Project project) {
         AppExtension appExtension = project.getExtensions().findByType(AppExtension.class);
         assert appExtension != null;
+        //注册优先于task任务的添加
+        project.getExtensions().create("AmsConfig", AmsConfig.class);
         appExtension.registerTransform(new AmsTransform(project));
-
     }
 }

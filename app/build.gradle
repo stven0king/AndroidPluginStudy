@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 apply plugin: 'amsplugin'
+AmsConfig{
+    isDebug = true
+    filterContainsClassStr = ["R.class", ".R\$"]
+    filterstartsWithClassStr = ["android"]
+    filterClassFile = "amsfilterclass.text"
+    amsMethodFile = "amsmethods.text"
+    amsMethodTag = "TEST"
+}
 android {
     compileSdkVersion 29
     buildToolsVersion "29.0.2"

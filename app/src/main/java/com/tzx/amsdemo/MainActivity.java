@@ -25,6 +25,11 @@ public class MainActivity extends AppCompatActivity {
     //@TrackMethod(tag = "TIME")
     public void test() {
         AmsTestJar.test();
+        maintest();
         Log.d("tanzhenxing", "test");
+    }
+
+    public void maintest() {
+        Log.d("tanzhenxing", "maintest");
     }
 }

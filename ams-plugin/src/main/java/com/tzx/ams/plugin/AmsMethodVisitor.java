@@ -1,16 +1,21 @@
 package com.tzx.ams.plugin;
 
+import com.android.utils.Pair;
+
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.commons.AdviceAdapter;
 
+import java.io.File;
+
 /**
  * Created by Tanzhenxing
  * Date: 2020-01-15 16:53
- * Description:
+ * Description: 方法解析
  */
 public class AmsMethodVisitor extends AdviceAdapter {
+    private static final String TAG = "AmsMethodVisitor";
     private static final String ANNOTATION_TRACK_METHOD = "Lcom/tzx/ams/TrackMethod;";
     private static final String METHOD_EVENT_MANAGER = "com/tzx/ams/MethodEventManager";
     private final MethodVisitor methodVisitor;
@@ -25,6 +30,11 @@ public class AmsMethodVisitor extends AdviceAdapter {
         this.methodName = name;
     }
 
+    public void setTag(String tag) {
+        needInject = true;
+        this.tag = tag;
+    }
+
     /**
      * 访问类的注解
      * @param desc 表示类注解类的描述；
@@ -33,6 +43,7 @@ public class AmsMethodVisitor extends AdviceAdapter {
      */
     @Override
     public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+        Logger.logs(TAG, "visitAnnotation", desc);
         AnnotationVisitor annotationVisitor = super.visitAnnotation(desc, visible);
         if (desc.equals(ANNOTATION_TRACK_METHOD)) {
             needInject = true;
@@ -46,12 +57,25 @@ public class AmsMethodVisitor extends AdviceAdapter {
                     super.visit(name, value);
                     if (name.equals("tag") && value instanceof String) {
                         tag = (String) value;
-                        log(tag + " methodName=" + methodName);
+                        Logger.log(TAG, tag, " methodName=" + methodName);
                     }
                 }
             };
         }
         return annotationVisitor;
+    }
+
+    /**
+     * 访问方法操作指令
+     * @param opcode 为INVOKESPECIAL,INVOKESTATIC,INVOKEVIRTUAL,INVOKEINTERFACE;
+     * @param owner 方法拥有者的名称;
+     * @param name 方法名称;
+     * @param desc 方法描述，参数和返回值;
+     * @param itf 是否是接口;
+     */
+    @Override
+    public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
+        super.visitMethodInsn(opcode, owner, name, desc, itf);
     }
 
     @Override
@@ -94,9 +118,5 @@ public class AmsMethodVisitor extends AdviceAdapter {
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, METHOD_EVENT_MANAGER,
                     "notifyMethodExit", "(Ljava/lang/String;Ljava/lang/String;)V", false);
         }
-    }
-
-    private void log(String s) {
-        System.out.println("AmsMethodVisitor" + ":" + s);
     }
 }

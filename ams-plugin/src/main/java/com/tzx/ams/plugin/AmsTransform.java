@@ -10,6 +10,7 @@ import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.utils.FileUtils;
+import com.android.utils.Pair;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.compress.utils.IOUtils;
@@ -18,11 +19,15 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -36,13 +41,13 @@ import java.util.jar.JarOutputStream;
 /**
  * Created by Tanzhenxing
  * Date: 2020-01-15 16:59
- * Description:
+ * Description: 自定义Transform
  */
 public class AmsTransform extends Transform{
     private static final String TAG = "AmsTransform";
     private Map<String, File> modifyMap = new HashMap<>();
     private Project project;
-    private boolean isDebug = true;
+    private static AmsConfig amsConfig;
     public AmsTransform(Project project) {
         this.project = project;
     }
@@ -67,10 +72,82 @@ public class AmsTransform extends Transform{
         return false;//是否开启增量编译
     }
 
+    public static AmsConfig getAmsConfig() {
+        return amsConfig;
+    }
+
+    private void initConfig() {
+        amsConfig = (AmsConfig) this.project.getExtensions().getByName(AmsConfig.class.getSimpleName());
+        Logger.isDebug = amsConfig.isDebug;
+        String projectDri = this.project.getProjectDir().getAbsolutePath();
+        initfilterClassFile(projectDri);
+        initAmsMethodFile(projectDri);
+    }
+
+    private void initfilterClassFile(String projectDri) {
+        if (amsConfig.filterClassFile != null && amsConfig.filterClassFile.length() != 0) {
+            String fileName = projectDri + File.separatorChar + amsConfig.filterClassFile;
+            try {
+                FileReader fileReader = new FileReader(fileName);
+                BufferedReader bufferedReader = new BufferedReader(fileReader);
+                String line;
+                while ((line = bufferedReader.readLine()) != null) {
+                    Logger.log(TAG, "filterClassName:" + line);
+                    if (amsConfig.filterClassNameList == null) {
+                        amsConfig.filterClassNameList = new ArrayList<>();
+                    }
+                    if (line.length() > 0) {
+                        amsConfig.filterClassNameList.add(line);
+                    }
+                }
+                bufferedReader.close();
+                fileReader.close();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void initAmsMethodFile(String projectDri) {
+        if (amsConfig.amsMethodFile != null && amsConfig.amsMethodFile.length() > 0) {
+            String fileName = projectDri + File.separatorChar + amsConfig.amsMethodFile;
+            try {
+                FileReader fileReader = new FileReader(fileName);
+                BufferedReader bufferedReader = new BufferedReader(fileReader);
+                String line;
+                while ((line = bufferedReader.readLine()) != null) {
+                    Logger.log(TAG, "amsMethodFile:" + line);
+                    if (amsConfig.amsMethodFileList == null) {
+                        amsConfig.amsMethodFileList = new ArrayList<>();
+                    }
+                    if (line.length() > 0) {
+                        String[] strings = line.split("#");
+                        if (strings.length != 2) {
+                            continue;
+                        }
+                        String method = strings[0];
+                        String classname = strings[1];
+                        amsConfig.amsMethodFileList.add(Pair.of(method, classname));
+                    }
+                }
+                bufferedReader.close();
+                fileReader.close();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     @Override
     public void transform(TransformInvocation transformInvocation)
             throws TransformException, InterruptedException, IOException {
         super.transform(transformInvocation);
+        //transform方法中才能获取到注册的对象
+        initConfig();
         if (!isIncremental()) {
             transformInvocation.getOutputProvider().deleteAll();
         }
@@ -80,12 +157,12 @@ public class AmsTransform extends Transform{
             // 遍历输入，分别遍历其中的jar以及directory
             for (JarInput jarInput : input.getJarInputs()) {
                  //对jar文件进行处理
-                log("Find jar input: " + jarInput.getName());
+                Logger.log(TAG, "Find jar input: " + jarInput.getName());
                 transformJar(transformInvocation, jarInput);
             }
             for (DirectoryInput directoryInput : input.getDirectoryInputs()) {
                 // 对directory进行处理
-                log("Find dir input:" + directoryInput.getFile().getName());
+                Logger.log(TAG, "Find dir input:" + directoryInput.getFile().getName());
                 transformDirectory(transformInvocation, directoryInput);
             }
         }
@@ -121,7 +198,11 @@ public class AmsTransform extends Transform{
                 output.putNextEntry(destEntry);
                 byte[] sourceBytes = IOUtils.toByteArray(inputStream);
                 // 修改class文件内容
-                byte[] modifiedBytes = modifyClass(sourceBytes);
+                byte[] modifiedBytes = null;
+                if (filterModifyClass(entryName)) {
+                    Logger.log(TAG, "Modifyjar:" , entryName);
+                    modifiedBytes = modifyClass(sourceBytes);
+                }
                 if (modifiedBytes == null) {
                     modifiedBytes = sourceBytes;
                 }
@@ -162,7 +243,6 @@ public class AmsTransform extends Transform{
                 }
                 FileUtils.copyFile(entry.getValue(), target);
                 entry.getValue().delete();
-                log("replaceFile:" , entry.getValue() , target.getAbsolutePath());
             }
         }
     }
@@ -182,27 +262,50 @@ public class AmsTransform extends Transform{
                 String className = path2ClassName(file.getAbsolutePath()
                         .replace(basedir + File.separator, ""));
                 byte[] sourceBytes = IOUtils.toByteArray(new FileInputStream(file));
-                byte[] modifiedBytes;
-                //if (file.getAbsolutePath().contains("com/tzx/") && !file.getAbsolutePath().contains("R$")) {
-                //if (filterModifyFile(file)) {
+                byte[] modifiedBytes = null;
+                if (filterModifyClass(className + ".class")) {
+                    Logger.log(TAG, "Modifydir:" , className + ".class");
                     modifiedBytes = modifyClass(sourceBytes);
-                    File modified = new File(tempDir, className + ".class");
-                    if (modified.exists()) {
-                        modified.delete();
-                    }
-                    modified.createNewFile();
-                    new FileOutputStream(modified).write(modifiedBytes);
-                    log(":dir:" + className);
-                    modifyMap.put(className, modified);
-                //}
+                }
+                if (modifiedBytes == null) {
+                    modifiedBytes = sourceBytes;
+                }
+                File modified = new File(tempDir, className + ".class");
+                if (modified.exists()) {
+                    modified.delete();
+                }
+                modified.createNewFile();
+                new FileOutputStream(modified).write(modifiedBytes);
+                modifyMap.put(className, modified);
             }
         }
     }
 
-    private boolean filterModifyFile(File file) {
-        return file != null
-                && !file.getAbsolutePath().contains("R$")
-                && !file.getAbsolutePath().contains("/R.class");
+    private boolean filterModifyClass(String className) {
+        if (className == null || className.length() == 0) return false;
+        String s = className.replace(File.separator, ".");
+        if (amsConfig.filterClassNameList != null && amsConfig.filterClassNameList.size() > 0) {
+            for (String str: amsConfig.filterClassNameList) {
+                if (s.equals(str)) {
+                    return false;
+                }
+            }
+        }
+        if (amsConfig.filterContainsClassStr != null && amsConfig.filterContainsClassStr.length > 0) {
+            for (String str: amsConfig.filterContainsClassStr) {
+                if (s.contains(str)) {
+                    return false;
+                }
+            }
+        }
+        if (amsConfig.filterstartsWithClassStr != null && amsConfig.filterstartsWithClassStr.length > 0) {
+            for (String str: amsConfig.filterstartsWithClassStr) {
+                if (s.startsWith(str)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private byte[] modifyClass(byte[] classBytes) {
@@ -217,17 +320,4 @@ public class AmsTransform extends Transform{
         return pathName.replace(File.separator, ".").replace(".class", "");
     }
 
-
-    private void log(String s) {
-        if (isDebug) {
-            this.project.getLogger().debug(TAG, s);
-        }
-    }
-
-
-    private void log(String s, Object... var2) {
-        if (isDebug) {
-            this.project.getLogger().debug(s, var2);
-        }
-    }
 }
