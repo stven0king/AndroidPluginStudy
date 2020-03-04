@@ -1,3 +1,5 @@
+
+
 # AndroidPluginStudy
 
 [ASM](https://asm.ow2.io/) 是一个通用的`Java`字节码操作和分析框架。它可以直接以二进制形式用于修改现有类或动态生成类。 `ASM`提供了一些常见的字节码转换和分析算法，可以从中构建定制的复杂转换和代码分析工具。 `ASM`提供与其他`Java字`节码框架类似的功能，但侧重于性能。因为它的设计和实现是尽可能的小和尽可能快，所以它非常适合在动态系统中使用（但当然也可以以静态方式使用，例如在编译器中）。
@@ -7,6 +9,14 @@
 ## 自定义plugin开发
 
 `Gradle`从1.5开始，`Gradle`插件包含了一个叫`Transform`的API，这个API允许第三方插件在`class`文件转为为`dex`文件前操作编译好的`class`文件，这个API的目标是简化自定义类操作，而不必处理`Task`，并且在操作上提供更大的灵活性。并且可以更加灵活地进行操作。官方文档：http://google.github.io/android-gradle-dsl/javadoc/
+
+### 创建插件
+
+在 `AndroidStudio` 中创建一个纯净的`Module` ，删除 `res` 文件夹和 `AndroidManifest.xml` 文件。
+
+**Gradle会默认在配置初始化前，编译buildSrc这个项目，可以是java、groovy、kotlin项目，并把项目配置到classpath下。**所以如果`Module` 命名为 `buildSrc` 那么不需要在 `Project` 级别的 `build.gradle` 文件中使用 `classpath` 引入，也不需要在 `app` 级别的 `build.gradle` 文件中使用 `apply plugin:` 进行应用。  
+
+下面我们介绍的是自定义的 `Plugin` 插件，是编译之后需要引入项目的。
 
 > 类继承`Plugin` 
 
@@ -41,6 +51,14 @@ implementation-class=com.tzx.ams.plugin.AmsPlugin
 
 ![properties](./properties.png)
 
+### 生成插件
+
+我们在执行 `uploadArchives` 的任务的时候就在我们对于的仓库生成了我们需要的插件。
+
+![](./repo.png)
+
+### 在项目中引入插件
+
 > 项目的根 `build.gradle`配置
 
 ```groovy
@@ -58,6 +76,14 @@ buildscript {
         classpath 'com.tzx.ams:ams-plugin:1.0.0'
     }
 }
+```
+
+> 项目的 `build.gradle` 配置
+
+```groovy
+apply plugin: 'com.android.application'
+apply plugin: 'amsplugin'
+/***部分代码省略***/
 ```
 
 ## plugin自定义配置
